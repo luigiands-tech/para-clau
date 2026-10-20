@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>💜</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; }
+  #tap {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #c084fc; font: 500 16px system-ui, sans-serif; letter-spacing: .12em;
+    cursor: pointer; user-select: none; transition: opacity 1s;
+  }
+  #tap span { animation: pulso 2s ease-in-out infinite; }
+  @keyframes pulso { 50% { opacity: .3; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="tap"><span>✨ toca la pantalla ✨</span></div>
+
+<script>
+// ================= Configuración =================
+const LINEAS = ["TE AMO", "CLAU", "LESMES"];
+const COLOR_CORAZON = "#a855f7";
+const COLOR_TEXTO   = "#e9d5ff";
+const COLOR_BRILLO  = "#ffffff";
+
+const N = 520;            // estrellas del corazón
+const ESCALA = 13;        // tamaño del corazón
+const PX = 5;             // tamaño de cada "píxel" de las letras
+const CENTRO_Y = -15;
+
+const INTRO = 2.0;        // segundos de cielo estrellado antes de moverse
+const VIAJE = 4.5;        // segundos que tarda cada estrella en llegar
+const RETRASO_MAX = 1.2;  // llegada escalonada
+const PERIODO_LATIDO = 1.1;
+
+// ================= Fuente de píxeles 5x7 =================
+const FUENTE = {
+  "T": ["#####","..#..","..#..","..#..","..#..","..#..","..#.."],
+  "E": ["#####","#....","#....","####.","#....","#....","#####"],
+  "A": [".###.","#...#","#...#","#####","#...#","#...#","#...#"],
+  "M": ["#...#","##.##","#.#.#","#.#.#","#...#","#...#","#...#"],
+  "O": [".###.","#...#","#...#","#...#","#...#","#...#",".###."],
+  "C": [".####","#....","#....","#....","#....","#....",".####"],
+  "L": ["#....","#....","#....","#....","#....","#....","#####"],
+  "U": ["#...#","#...#","#...#","#...#","#...#","#...#",".###."],
+  "S": [".####","#....","#....",".###.","....#","....#","####."],
+  " ": [".....",".....",".....",".....",".....",".....","....."]
+};
+
+function puntosTexto() {
+  const altoLinea = 7 * PX, sep = PX * 2;
+  const total = LINEAS.length * altoLinea + (LINEAS.length - 1) * sep;
+  const y0 = CENTRO_Y + total / 2;
+  const pts = [];
+  LINEAS.forEach((linea, li) => {
+    const ancho = (linea.length * 6 - 1) * PX;
+    const x0 = -ancho / 2;
+    const ytop = y0 - li * (altoLinea + sep);
+    [...linea].forEach((ch, ci) => {
+      (FUENTE[ch] || FUENTE[" "]).forEach((bits, fila) => {
+        [...bits].forEach((b, col) => {
+          if (b === "#") pts.push([x0 + (ci * 6 + col) * PX + PX / 2,
+                                   ytop - fila * PX - PX / 2]);
+        });
+      });
+    });
+  });
+  return pts;
+}
+
+// ================= Canvas =================
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+let W, H, K, DPR;
+function ajustar() {
+  DPR = window.devicePixelRatio || 1;
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  K = Math.min(W, H) / 700;     // 700 unidades = lado corto de la pantalla
+}
+ajustar();
+addEventListener("resize", ajustar);
+
+const DIRS = [0, 45, 90, 135].map(a => [Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)]);
+const rand = (a, b) => a + Math.random() * (b - a);
+const stars = [];
+
+function crearEstrella(tx, ty, size, color) {
+  const rx = (W / 2) / K, ry = (H / 2) / K;   // empiezan regadas por toda la pantalla
+  const sx = rand(-rx, rx), sy = rand(-ry, ry);
+  stars.push({ sx, sy, dx: tx - sx, dy: ty - sy, size, color, retraso: rand(0, RETRASO_MAX), brilla: false });
+}
+
+for (let i = 0; i < N; i++) {
+  const a = 2 * Math.PI * i / N;
+  const tx = 16 * Math.sin(a) ** 3 * ESCALA + rand(-10, 10);
+  const ty = (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * ESCALA + rand(-10, 10);
+  crearEstrella(tx, ty, rand(2.5, 5.5), COLOR_CORAZON);
+}
+for (const [tx, ty] of puntosTexto()) crearEstrella(tx, ty, rand(1.8, 2.6), COLOR_TEXTO);
+
+const FIN = INTRO + RETRASO_MAX + VIAJE;
+const suave = p => p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2;
+function latido(tt) {
+  const b = tt % PERIODO_LATIDO;
+  return 1 + 0.045 * (Math.exp(-(((b - 0.10) / 0.07) ** 2)) + 0.6 * Math.exp(-(((b - 0.34) / 0.07) ** 2)));
+}
+
+// ================= Animación =================
+let inicio = null, ultimoBrillo = 0;
+
+document.getElementById("tap").addEventListener("click", function () {
+  if (inicio !== null) return;
+  inicio = performance.now();
+  this.style.opacity = 0;
+  setTimeout(() => this.remove(), 1000);
+});
+
+function frame(now) {
+  const ahora = inicio === null ? 0 : (now - inicio) / 1000;
+  const k = inicio === null ? -1 : ahora - INTRO;
+  const esc = ahora > FIN ? latido(ahora - FIN) : 1;
+
+  // Titileo: cambia qué estrellas brillan cada ~80 ms
+  if (now - ultimoBrillo > 80) {
+    ultimoBrillo = now;
+    for (const st of stars) st.brilla = false;
+    for (let i = 0; i < 14; i++) stars[(Math.random() * stars.length) | 0].brilla = true;
+  }
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(K * DPR, 0, 0, -K * DPR, (W / 2) * DPR, (H / 2) * DPR);  // origen al centro, Y hacia arriba
+  ctx.lineWidth = 1.2;
+
+  // Un solo trazo por color = mucho más rápido
+  const caminos = { [COLOR_CORAZON]: new Path2D(), [COLOR_TEXTO]: new Path2D(), [COLOR_BRILLO]: new Path2D() };
+  for (const st of stars) {
+    let p = (k - st.retraso) / VIAJE;
+    p = p < 0 ? 0 : p > 1 ? 1 : p;
+    const e = suave(p);
+    const cx = (st.sx + st.dx * e) * esc;
+    const cy = CENTRO_Y + (st.sy + st.dy * e - CENTRO_Y) * esc;
+    const path = caminos[st.brilla ? COLOR_BRILLO : st.color];
+    for (const [ux, uy] of DIRS) {
+      const ox = ux * st.size, oy = uy * st.size;
+      path.moveTo(cx - ox, cy - oy);
+      path.lineTo(cx + ox, cy + oy);
+    }
+  }
+  for (const color in caminos) { ctx.strokeStyle = color; ctx.stroke(caminos[color]); }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
